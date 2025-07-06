@@ -11,6 +11,7 @@ download_folder = os.path.join(os.getcwd(), 'downloads')
 if not os.path.exists(download_folder):
     os.makedirs(download_folder)
 
+
 @app.route('/youtube', methods=['POST'])
 def download_media():
     data = request.get_json()
@@ -24,46 +25,75 @@ def download_media():
 
     try:
         ext, resolution = media_format.split("-")
-        height = int(resolution.replace("p", ""))
+        ext = ext.strip().lower()
+
+        if ext == "mp4":
+            height = int(resolution.replace("p", ""))
+        elif ext == "mp3":
+            bitrate_value = int(resolution.replace("kbps", ""))
+        else:
+            return jsonify({"error": f"Unsupported format '{ext}'. Use 'mp4' or 'mp3'."}), 400
     except Exception:
-        return jsonify({"error": "Invalid format string. Use format like 'mp4-1080p'"}), 400
+        return jsonify({"error": "Invalid format string. Use 'mp4-1080p' or 'mp3-320kbps'."}), 400
 
-    format_selector = (
-        f"bestvideo[ext={ext}][height<={height}]+bestaudio[ext=m4a]/"
-        f"best[ext={ext}][height<={height}]"
-    )
-
-    ydl_options = {
-        "format": format_selector,
-        "outtmpl": os.path.join(download_folder, "%(title)s.%(ext)s"),
-        "merge_output_format": ext,
-        "quiet": True,
-        "no_warnings": True,
-    }
+    
+    if ext == "mp4":
+        format_selector = (
+            f"bestvideo[ext=mp4][height={height}]+bestaudio[ext=m4a]/"
+            f"best[ext=mp4][height<={height}]"
+        )
+        ydl_options = {
+            "format": format_selector,
+            "outtmpl": os.path.join(download_folder, "%(title)s.%(ext)s"),
+            "merge_output_format": "mp4",
+            "quiet": True,
+            "no_warnings": True,
+            "force_keyframes_at_cuts": True,
+            "allow_unplayable_formats": False,
+            "restrict_filenames": True,
+        }
+    elif ext == "mp3":
+        ydl_options = {
+            "format": "bestaudio/best",
+            "outtmpl": os.path.join(download_folder, "%(title)s.%(ext)s"),
+            "quiet": True,
+            "no_warnings": True,
+            "postprocessors": [
+                {
+                    "key": "FFmpegExtractAudio",
+                    "preferredcodec": "mp3",
+                    "preferredquality": str(bitrate_value),
+                },
+                {
+                    "key": "FFmpegMetadata",
+                },
+            ],
+        }
 
     try:
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
             info = ydl.extract_info(url, download=True)
-            filename = ydl.prepare_filename(info)
-            raw_title = info.get('title', 'video')
+            raw_title = info.get('title', 'media')
             safe_title = re.sub(r'[<>:"/\\|?*]', '', raw_title)
-            final_filename = f"{safe_title}.{ext}"
 
-            # Rename file to safe filename if needed
+            
+            if ext == "mp4":
+                final_filename = f"{safe_title}.mp4"
+            elif ext == "mp3":
+                final_filename = f"{safe_title}.mp3"
+
             final_filepath = os.path.join(download_folder, final_filename)
-            if filename != final_filepath:
-                os.rename(filename, final_filepath)
 
-        # Return only filename to frontend
         return jsonify({"filename": final_filename}), 200
 
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
-# Serve the downloaded files with proper attachment headers
+
 @app.route('/downloads/<path:filename>', methods=['GET'])
 def serve_download(filename):
     return send_from_directory(download_folder, filename, as_attachment=True)
+
 
 if __name__ == '__main__':
     app.run(debug=True, port=5000)
