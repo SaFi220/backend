@@ -1,21 +1,30 @@
 import os
 from flask import Flask, request, jsonify, send_from_directory
-from flask_cors import CORS
+from flask_cors import CORS , cross_origin
 
 app  = Flask(__name__)
 CORS(app)
 
-@app.route('/cleaner',methods=['POST'])
+@app.route('/cleaner',methods=['POST','OPTIONS'])
+@cross_origin(origin='http://localhost:3000', supports_credentials=True)
 def get_response():
     response = request.get_json()
+
+    if request.method == "OPTIONS":
+        response = jsonify({"message": "CORS preflight OK"})
+        response.status_code = 200
+        return response
+
     if response is None:
         return jsonify({"error":"Request must be JSON"}),400
     status = response.get('status')
     if status == "completed":
-        delete_all_files('C:\Users\MM2\Desktop\videoGrab\backend\downloads')
+        delete_all_files(r'C:\Users\MM2\Desktop\videoGrab\backend\downloads')
         return jsonify({"message":"All files deleted"}),200
-    elif response == "failed":
-        return jsonify({"error","Delete failed"}),400
+    elif status == "failed":
+        return jsonify({"error":"Delete failed"}),400
+    else:
+        return jsonify({"error":"Invalid status"}),400
 
 
 def delete_all_files(directory_path):
@@ -36,5 +45,5 @@ def delete_all_files(directory_path):
             print(f"Failed to delete {file_path}. Reason: {e}")
 
 if __name__ == '__main__':
-    app.run(debug=True, port=5000)
+    app.run(host='0.0.0.0',debug=True, port=5001)
 
