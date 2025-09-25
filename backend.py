@@ -47,14 +47,17 @@ def delete_all_files(directory):
 # -------------------------
 # Generic Downloader Function
 # -------------------------
-def handle_download(data):
+def handle_download(data, platform):
     if not data:
         return jsonify({"error":"Request must be JSON"}), 400
     url = data.get('url')
     media_format = data.get('format')
+    cookies = data.get('cookies')  # optional, only for platforms that need it
+
     if not url or not media_format:
         return jsonify({"error":"Missing 'url' or 'format' parameter"}),400
 
+    # parse format
     try:
         ext, res = media_format.split("-")
         ext = ext.strip().lower()
@@ -67,27 +70,34 @@ def handle_download(data):
     except:
         return jsonify({"error": "Invalid format string"}),400
 
-    ydl_options = {}
+    # base options
+    ydl_options = {
+        "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
+        "quiet": True,
+        "no_warnings": True,
+        "restrict_filenames": True,
+    }
+
     if ext == "mp4":
-        ydl_options = {
+        ydl_options.update({
             "format": f"bestvideo[ext=mp4][height<={height}]+bestaudio[ext=m4a]/best[ext=mp4][height<={height}]",
-            "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
             "merge_output_format": "mp4",
-            "quiet": True,
-            "no_warnings": True,
-            "restrict_filenames": True,
-        }
+        })
     elif ext == "mp3":
-        ydl_options = {
+        ydl_options.update({
             "format": "bestaudio/best",
-            "outtmpl": os.path.join(DOWNLOADS_DIR, "%(title)s.%(ext)s"),
-            "quiet": True,
-            "no_warnings": True,
             "postprocessors": [
                 {"key": "FFmpegExtractAudio","preferredcodec": "mp3","preferredquality": str(bitrate_value)},
                 {"key": "FFmpegMetadata"}
             ],
-        }
+        })
+
+    # platform-specific tweaks
+    if platform.lower() in ["instagram", "tiktok", "twitch"]:
+        if cookies:
+            ydl_options["cookiefile"] = cookies
+        else:
+            print(f"Warning: {platform} may require authentication via cookies")
 
     try:
         with yt_dlp.YoutubeDL(ydl_options) as ydl:
@@ -103,19 +113,19 @@ def handle_download(data):
 # -------------------------
 @app.route('/instagram', methods=['POST'])
 def instagram():
-    return handle_download(request.get_json())
+    return handle_download(request.get_json(), platform="instagram")
 
 @app.route('/tiktok', methods=['POST'])
 def tiktok():
-    return handle_download(request.get_json())
+    return handle_download(request.get_json(), platform="tiktok")
 
 @app.route('/twitch', methods=['POST'])
 def twitch():
-    return handle_download(request.get_json())
+    return handle_download(request.get_json(), platform="twitch")
 
 @app.route('/youtube', methods=['POST'])
 def youtube():
-    return handle_download(request.get_json())
+    return handle_download(request.get_json(), platform="youtube")
 
 # -------------------------
 # Serve Downloads
@@ -128,6 +138,5 @@ def serve_download(filename):
 # Run Server
 # -------------------------
 if __name__ == "__main__":
-    import os
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
